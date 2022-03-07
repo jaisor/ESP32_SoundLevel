@@ -5,12 +5,19 @@
 #include <Arduino.h>
 #include <WiFiClient.h>
 #include <ezTime.h>
+#include <AsyncElegantOTA.h>
 
 #include "wifi/WifiManager.h"
 #include "Configuration.h"
 
 #define MAX_CONNECT_TIMEOUT_MS 15000 // 10 seconds to connect before creating its own AP
 #define BOARD_LED_PIN 2
+
+#ifdef ESP32
+  #define ESP_LABEL "ESP32"
+#elif ESP8266
+  #define ESP_LABEL "ESP8266"
+#endif
 
 const int RSSI_MAX =-50;// define maximum straighten of signal in dBm
 const int RSSI_MIN =-100;// define minimum strength of signal in dBm
@@ -31,13 +38,13 @@ int dBmtoPercentage(int dBm) {
 
 const String htmlTop FL_PROGMEM = "<html>\
   <head>\
-    <title>ESP8266 LED Leaf</title>\
+    <title>%s LED Leaf</title>\
     <style>\
       body { background-color: #303030; font-family: 'Anaheim',sans-serif; Color: #d8d8d8; }\
     </style>\
   </head>\
   <body>\
-    <h1>ESP8266 LED Leaf</h1>";
+    <h1>%s LED Leaf</h1>";
 
 const String htmlBottom FL_PROGMEM = "<br><br><hr>\
   <p>Uptime: %02d:%02d:%02d</p>\
@@ -134,6 +141,9 @@ void CWifiManager::listen() {
   // NTP
   Log.infoln("Configuring time from %s at %i (%i)", configuration.ntpServer, configuration.gmtOffset_sec, configuration.daylightOffset_sec);
 
+  // OTA
+  AsyncElegantOTA.begin(server);
+
   configTime(configuration.gmtOffset_sec, configuration.daylightOffset_sec, configuration.ntpServer);
   struct tm timeinfo;
   
@@ -190,7 +200,7 @@ void CWifiManager::handleRoot(AsyncWebServerRequest *request) {
   int hr = min / 60;
 
   AsyncResponseStream *response = request->beginResponseStream("text/html");
-  response->printf(htmlTop.c_str());
+  response->printf(htmlTop.c_str(), ESP_LABEL);
 
   if (apMode) {
     response->printf(htmlWifiApConnectForm.c_str());
@@ -223,7 +233,7 @@ void CWifiManager::handleConnect(AsyncWebServerRequest *request) {
   int hr = min / 60;
 
   AsyncResponseStream *response = request->beginResponseStream("text/html");
-  response->printf(htmlTop.c_str());
+  response->printf(htmlTop.c_str(), ESP_LABEL);
   response->printf("<p>Connecting to '%s' ... see you on the other side!</p>", ssid.c_str());
   response->printf(htmlBottom.c_str(), hr, min % 60, sec % 60);
   request->send(response);
@@ -259,7 +269,7 @@ void CWifiManager::handleLedMode(AsyncWebServerRequest *request) {
   configuration.ledCycleModeMs = atol(request->arg("cycle_delay").c_str());
     
   Log.noticeln("ledMode: '%i'", configuration.ledMode);
-  Log.noticeln("ledBrightness: '%.2f'", configuration.ledBrightness);
+  Log.noticeln("ledBrightness: '%D'", configuration.ledBrightness);
 
   EEPROM_saveConfig();
   

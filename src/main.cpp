@@ -12,6 +12,7 @@
 
 #include "wifi/WifiManager.h"
 #include "modes/HoneyOrangeMode.h"
+#include "modes/DualRingMode.h"
 #include "modes/PaletteMode.h"
 
 CRGB leds[LED_STRIP_SIZE];
@@ -41,6 +42,7 @@ void setup() {
 
   wifiManager = new CWifiManager();
 
+  modes.push_back(new CDualRingMode(LED_STRIP_SIZE, "Dual Ring"));
   modes.push_back(new CPaletteMode(LED_STRIP_SIZE, "Party Colors", PartyColors_p, 255.0 / (float)LED_STRIP_SIZE));
   //modes.push_back(new CPaletteMode(LED_STRIP_SIZE, "Heat Colors", HeatColors_p, 255.0 / (float)LED_STRIP_SIZE));
   modes.push_back(new CPaletteMode(LED_STRIP_SIZE, "Rainbow Colors", RainbowColors_p, 255.0 / (float)LED_STRIP_SIZE));
