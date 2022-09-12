@@ -2,83 +2,87 @@
 #include <functional>
 #include <ArduinoLog.h>
 
-
 #if !( defined(ESP32) )
   #error This code is intended to run on ESP32 platform! Please check your Tools->Board setting.
 #endif
 
-#include <FastLED.h>
-#include <vector>
-
+#include "Configuration.h"
+#include "Device.h"
 #include "wifi/WifiManager.h"
-#include "modes/HoneyOrangeMode.h"
-#include "modes/DualRingMode.h"
-#include "modes/PaletteMode.h"
 
-CRGB leds[LED_STRIP_SIZE];
-
-std::vector<CBaseMode*> modes;
+CDevice *device;
 CWifiManager *wifiManager;
 
+unsigned long tsSmoothBoot;
+bool smoothBoot;
+unsigned long tsMillisBooted;
+
+
 void setup() {
-  delay( 1000 ); // power-up safety delay
-
-  Serial.begin(115200);
-  while(!Serial && !Serial.available()){}
+  Serial.begin(115200);  while (!Serial); delay(200);
   randomSeed(analogRead(0));
+  
+  pinMode(INTERNAL_LED_PIN, OUTPUT);
+  #ifdef ESP32
+    digitalWrite(INTERNAL_LED_PIN, HIGH);
+  #elif ESP8266
+    digitalWrite(INTERNAL_LED_PIN, LOW);
+  #endif
 
-  Log.begin(LOG_LEVEL_VERBOSE, &Serial);
-  Log.noticeln("******************************************");  
+  Log.begin(LOG_LEVEL_NOTICE, &Serial);
+  Log.noticeln("Initializing...");  
 
-  FastLED.addLeds<LED_TYPE, LED_PIN, LED_COLOR_ORDER>(leds, LED_STRIP_SIZE).setCorrection( TypicalLEDStrip );
-  FastLED.setBrightness(255);
+  if (EEPROM_initAndCheckFactoryReset() >= 3) {
+    Log.warningln("Factory reset conditions met!");
+    EEPROM_wipe();  
+  }
 
-#ifdef LED_PIN_BOARD
-  pinMode(LED_PIN_BOARD, OUTPUT);
-  digitalWrite(LED_PIN_BOARD, HIGH);
-#endif
+  tsSmoothBoot = millis();
+  smoothBoot = false;
 
   EEPROM_loadConfig();
 
+  device = new CDevice();
   wifiManager = new CWifiManager();
 
-  modes.push_back(new CDualRingMode(LED_STRIP_SIZE, "Dual Ring"));
-  modes.push_back(new CPaletteMode(LED_STRIP_SIZE, "Party Colors", PartyColors_p, 255.0 / (float)LED_STRIP_SIZE));
-  //modes.push_back(new CPaletteMode(LED_STRIP_SIZE, "Heat Colors", HeatColors_p, 255.0 / (float)LED_STRIP_SIZE));
-  modes.push_back(new CPaletteMode(LED_STRIP_SIZE, "Rainbow Colors", RainbowColors_p, 255.0 / (float)LED_STRIP_SIZE));
-  modes.push_back(new CPaletteMode(LED_STRIP_SIZE, "Cloud Colors", CloudColors_p, 255.0 / (float)LED_STRIP_SIZE));
-  //modes.push_back(new CPaletteMode(LED_STRIP_SIZE, "Forest Colors", ForestColors_p, 255.0 / (float)LED_STRIP_SIZE));
-  //modes.push_back(new CPaletteMode(LED_STRIP_SIZE, "Ocean Colors", OceanColors_p, 255.0 / (float)LED_STRIP_SIZE));
-  //modes.push_back(new CPaletteMode(LED_STRIP_SIZE, "Lava Colors", LavaColors_p, 255.0 / (float)LED_STRIP_SIZE));
-  modes.push_back(new CHoneyOrangeMode(LED_STRIP_SIZE, "Honey Amber"));
-  
-  wifiManager->setModes(&modes);
-
-  Log.noticeln("Setup completed!");
+  Log.infoln("Initialized");
 }
 
 void loop() {
-  static unsigned long tsMillis = millis();
-  
+
+  if (!smoothBoot && millis() - tsSmoothBoot > FACTORY_RESET_CLEAR_TIMER_MS) {
+    smoothBoot = true;
+    EEPROM_clearFactoryReset();
+    tsMillisBooted = millis();
+    Log.noticeln("Device booted smoothly!");
+
+    #ifdef ESP32
+      digitalWrite(INTERNAL_LED_PIN, LOW);
+    #elif ESP8266
+      digitalWrite(INTERNAL_LED_PIN, HIGH);
+    #endif
+  }
+
+  device->loop();
   wifiManager->loop();
 
-  //Log.infoln("mode: %i, bright: %i, delay: %i, cycle: %i", configuration.ledMode, 10000.0 * configuration.ledBrightness, configuration.ledDelayMs, configuration.ledCycleModeMs);
-  if (configuration.ledMode > modes.size()-1) {
-    configuration.ledMode = 0;
+  if (wifiManager->isRebootNeeded()) {
+    return;
   }
 
-  memset(leds, 0, sizeof(CRGB)*LED_STRIP_SIZE);
-  modes[configuration.ledMode]->draw(leds);
-  FastLED.show(255 * configuration.ledBrightness);
+#ifdef OLED
+  Adafruit_SSD1306 *display = device->display();
 
-  if (configuration.ledCycleModeMs > 0) {
-    // Change modes every so often 
-    if (millis() - tsMillis > configuration.ledCycleModeMs) {
-      tsMillis = millis();
-      configuration.ledMode++; 
-      if (configuration.ledMode > modes.size()-1) {
-        configuration.ledMode = 0;
-      }
-    }
-  }
+  display->clearDisplay();
+
+  // DEBUG: show key resistence value and bitmap
+  display->setTextSize(1);
+  display->setCursor(70, 24);
+  display->print("K:");
+
+  display->display();
+#endif
+
+  delay(20);
+  yield();
 }
